@@ -1,0 +1,1181 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cell Atlas 3D</title>
+<meta name="description" content="Tế bào động vật 3D chạy trên trình duyệt: bay xuyên qua bào quan, xem phiên mã và dịch mã, mô phỏng khuếch tán, chẩn đoán bào quan hỏng.">
+<meta property="og:title" content="Cell Atlas 3D">
+<meta property="og:description" content="A procedural 3D animal cell in the browser: fly through it, watch a gene being expressed, simulate diffusion, diagnose a broken organelle.">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,500;1,6..72,400;1,6..72,500&display=swap">
+<style>
+:root {
+  --ink: #e9edfb; --muted: #9ba8cc; --night: #050816;
+  --panel: rgba(7, 11, 30, .76); --line: rgba(155, 168, 204, .2); --accent: #f2c14e;
+  --ui: "Be Vietnam Pro", system-ui, sans-serif; --display: "Newsreader", Georgia, serif;
+  --mono: ui-monospace, "Cascadia Code", Consolas, monospace;   /* chỉ cho trình tự: cần thẳng cột */
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--night); color: var(--ink); font: 400 14px/1.5 var(--ui); }
+canvas { position: fixed; inset: 0; display: block; touch-action: none; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+#scrim { position: fixed; inset: 0 auto 0 0; width: 360px; background: linear-gradient(90deg, rgba(5, 8, 22, .88) 35%, transparent); pointer-events: none; }
+#boot { position: fixed; inset: 0; display: grid; place-items: center; color: var(--muted); }
+
+header { position: fixed; top: 20px; left: 24px; }
+h1 { margin: 0; font: 500 30px/1.1 var(--display); letter-spacing: -.01em; }
+header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+header button { margin: 8px 14px 0 0; color: var(--muted); font-size: 12.5px; text-decoration: underline; text-underline-offset: 3px; }
+header button:hover { color: var(--ink); }
+
+#index { position: fixed; top: 128px; left: 12px; width: 268px; max-height: calc(100% - 200px); overflow-y: auto; }
+#index ul { list-style: none; margin: 0; padding: 0; }
+#index button { display: grid; grid-template-columns: 9px 1fr; column-gap: 10px; width: 100%; padding: 3px 12px; text-align: left; line-height: 1.3; border-left: 2px solid transparent; }
+#index button:hover { background: rgba(155, 168, 204, .09); }
+#index button[aria-current="true"] { border-left-color: var(--accent); background: rgba(242, 193, 78, .08); }
+#index i, #labels button::before { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+#index i { margin-top: 5px; }
+#index small { grid-column: 2; color: var(--muted); font-size: 12px; }
+
+#labels button { position: fixed; top: 0; left: 0; display: flex; align-items: center; gap: 6px; margin: -5px 0 0 -5px; font-size: 12px; white-space: nowrap; text-shadow: 0 0 6px var(--night), 0 0 2px var(--night); will-change: transform; }
+#labels button::before { content: ""; }
+#labels button:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+#tip { position: fixed; top: 0; left: 0; padding: 3px 9px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; font-size: 12.5px; pointer-events: none; white-space: nowrap; }
+
+#info, #quiz { position: fixed; top: 20px; right: 20px; width: 344px; max-height: calc(100% - 40px); overflow-y: auto; padding: 22px 24px 20px; background: var(--panel); backdrop-filter: blur(14px); border: 1px solid var(--line); border-top: 2px solid var(--c, var(--accent)); border-radius: 4px; }
+:is(#info, #quiz) h2 { margin: 0; padding-right: 48px; font: italic 500 31px/1.12 var(--display); letter-spacing: -.01em; }
+:is(#info, #quiz) .vi { margin: 4px 0 14px; color: var(--muted); }
+:is(#info, #quiz) .text { margin: 0 0 18px; font-size: 14.5px; line-height: 1.62; }
+:is(#info, #quiz) h3 { margin: 0 0 6px; font: 600 12.5px/1.4 var(--ui); color: var(--muted); }
+#quiz ul { margin: 0 0 16px; padding-left: 18px; font-size: 14.5px; line-height: 1.55; }
+#quiz li + li { margin-top: 5px; }
+#quiz .act { padding: 7px 14px; border: 1px solid var(--accent); border-radius: 3px; background: var(--accent); color: #1a1405; font-weight: 600; }
+#quiz .act:disabled { opacity: .4; cursor: default; }
+#qPick { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+#qVerdict { margin: 0 0 8px; font-weight: 600; }
+#qVerdict.ok { color: #7ee081; }
+#qVerdict.no { color: #ff9a8a; }
+#quizExit { position: absolute; top: 14px; right: 16px; color: var(--muted); font-size: 12.5px; }
+#quizExit:hover { color: var(--ink); }
+#info dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 5px 16px; font-size: 13.5px; }
+#info dt { font: italic 400 15.5px/1.35 var(--display); }
+#info dd { margin: 0; color: var(--muted); }
+#close { position: absolute; top: 14px; right: 16px; color: var(--muted); font-size: 12.5px; }
+#close:hover { color: var(--ink); }
+
+#help { position: fixed; bottom: 14px; left: 24px; width: 250px; margin: 0; color: var(--muted); font-size: 12.5px; pointer-events: none; }
+
+#dock { position: fixed; left: 300px; right: 20px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; }
+#dock section { padding: 12px 16px 14px; background: var(--panel); backdrop-filter: blur(14px); border: 1px solid var(--line); border-radius: 4px; }
+#dock i { display: inline-block; width: 8px; height: 8px; margin: 0 4px 0 10px; border-radius: 50%; background: var(--c); }
+#sim .lead { margin: 0 0 8px; max-width: 96ch; color: var(--muted); font-size: 12.5px; }
+#sim .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 13px; }
+#count { width: 130px; accent-color: var(--accent); }
+#countOut { min-width: 6ch; font-variant-numeric: tabular-nums; }
+#simStats { margin: 8px 0 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+#sim:has(#mol:not(:checked)) :is(.lead, #simStats) { display: none; }   /* tắt phân tử thì bảng thu còn một hàng */
+#dogma form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+#dogma form > label:first-child { flex-basis: 100%; color: var(--muted); font-size: 12.5px; }
+#dna { flex: 1 1 240px; min-width: 0; padding: 7px 10px; font: 13px/1.4 var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--ink); background: rgba(155, 168, 204, .08); border: 1px solid var(--line); border-radius: 3px; }
+#dock button { padding: 7px 14px; border: 1px solid var(--line); border-radius: 3px; }
+#dock button[type="submit"] { background: var(--accent); border-color: var(--accent); color: #1a1405; font-weight: 600; }
+#dock .check { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+#dock .check input { accent-color: var(--accent); }
+#stage { margin: 10px 0 0; max-width: 84ch; font-size: 13.5px; }
+#stage.err { color: #ff9a8a; }
+#tracks { margin-top: 10px; overflow-x: auto; font: 13px/1.55 var(--mono); white-space: pre; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+#tracks div { width: max-content; }   /* hàng rộng bằng cả trình tự, để nhãn sticky bám suốt lúc cuộn */
+#tracks .lab { position: sticky; left: 0; display: inline-block; width: 19ch; color: var(--muted); background: #0a0f26; }
+#tracks .off { opacity: .2; }
+#tracks .cur { background: rgba(242, 193, 78, .32); color: #fff !important; }
+#note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+[hidden] { display: none !important; }
+
+@media (max-width: 720px) {
+  header { top: 12px; left: 14px; }
+  h1 { font-size: 23px; }
+  header p, #help, #index small, #scrim, #note, #sim .lead, #dogma form > label:first-child { display: none; }
+  #dock { top: 70px; bottom: auto; left: 10px; right: 10px; }
+  #dock section { padding: 10px 12px; }
+  #index { top: auto; bottom: 0; left: 0; right: 0; width: auto; background: var(--panel); border-top: 1px solid var(--line); }
+  #index ul { display: flex; overflow-x: auto; }
+  #index i { margin: 0; }
+  #index button { display: flex; align-items: center; gap: 7px; white-space: nowrap; padding: 13px 12px; border-left: 0; border-top: 2px solid transparent; }
+  #index button[aria-current="true"] { border-top-color: var(--accent); }
+  #info, #quiz { top: auto; bottom: 58px; left: 10px; right: 10px; width: auto; max-height: 46%; padding: 16px 18px; }
+  :is(#info, #quiz) h2 { font-size: 25px; }
+}
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="scene" aria-label="Mô hình 3D của một tế bào động vật"></canvas>
+<div id="scrim"></div>
+<p id="boot">Đang dựng tế bào. Cần mạng để tải three.js.</p>
+
+<header>
+  <h1>Cell Atlas</h1>
+  <p>Tế bào động vật, bay xuyên qua được</p>
+  <button id="toggle" aria-pressed="true">Ẩn nhãn</button>
+  <button id="quizStart">Chẩn đoán tế bào hỏng</button>
+</header>
+
+<nav id="index" aria-label="Danh mục bào quan"><ul></ul></nav>
+<div id="labels"></div>
+<div id="tip" hidden></div>
+
+<div id="dock">
+<section id="sim" aria-label="Khuếch tán">
+  <p class="lead">Diffusion (khuếch tán): phân tử chuyển động Brown, va chạm rồi lan từ nơi nồng độ cao sang nơi thấp. Phân tử càng nhỏ lan càng nhanh:
+    <i style="--c:#bfe3ff"></i>glucose<i style="--c:#ffc45e"></i>ATP<i style="--c:#b99cff"></i>protein</p>
+  <div class="row">
+    <label class="check"><input type="checkbox" id="mol" checked> Hiện phân tử</label>
+    <label for="count">Số phân tử</label>
+    <input type="range" id="count" min="2000" max="50000" step="1000" value="20000">
+    <output id="countOut" for="count"></output>
+    <button type="button" id="release">Thả lại từ một điểm</button>
+    <label class="check"><input type="checkbox" id="brute"> Bỏ spatial hash, dò mọi cặp O(n²)</label>
+  </div>
+  <p id="simStats" role="status"></p>
+</section>
+<section id="dogma" aria-label="Phiên mã và dịch mã">
+  <form>
+    <label for="dna">Chuỗi DNA, mạch mã hóa, chiều 5′→3′</label>
+    <input id="dna" value="GGCACCATGGCTTCAAAGGTGCATCTGACCTGGTAAGCC" spellcheck="false" autocomplete="off" autocapitalize="characters">
+    <button type="submit">Phiên mã và dịch mã</button>
+    <button type="button" id="pause" hidden>Tạm dừng</button>
+    <label class="check"><input type="checkbox" id="follow" checked> Camera bám theo</label>
+  </form>
+  <p id="stage" role="status" hidden></p>
+  <div id="tracks" hidden tabindex="0" aria-label="Trình tự DNA, mRNA và polypeptide"></div>
+  <p id="note" hidden>Mô hình rút gọn: phiên mã cả chuỗi, bỏ qua promoter, intron, mũ 5′ và đuôi poly-A. Amino acid:
+    <i style="--c:#d9c58a"></i>kỵ nước<i style="--c:#5fd3a2"></i>phân cực<i style="--c:#f2667a"></i>axit<i style="--c:#6aa5ff"></i>bazơ</p>
+</section>
+</div>
+
+<aside id="info" hidden aria-live="polite">
+  <button id="close">Đóng</button>
+  <h2 lang="en"></h2>
+  <p class="vi"></p>
+  <p class="text" lang="en"></p>
+  <h3>Thuật ngữ cần nhớ</h3>
+  <dl></dl>
+</aside>
+
+<aside id="quiz" hidden>
+  <button id="quizExit">Thoát</button>
+  <h2 tabindex="-1">Ca <span id="qNo"></span></h2>
+  <p class="vi" id="qScore"></p>
+  <p class="text" id="qSee"></p>
+  <h3>Triệu chứng</h3>
+  <ul id="qClues" lang="en"></ul>
+  <p id="qPick" aria-live="polite"></p>
+  <button class="act" id="qConfirm">Chốt chẩn đoán</button>
+  <div id="qResult" hidden>
+    <p id="qVerdict" aria-live="polite"></p>
+    <p class="text" id="qWhy" lang="en"></p>
+    <button class="act" id="qNext">Ca tiếp theo</button>
+  </div>
+</aside>
+
+<p id="help">Kéo để xoay. Cuộn để phóng. W A S D, Q E để bay. Bấm vào bào quan để xem.</p>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+// ---------- Nội dung: thứ tự theo đường đi của protein tiết ----------
+// d = khoảng cách camera khi bay tới.
+const ORG = {
+  membrane: { en: 'Plasma membrane', vi: 'Màng sinh chất', color: 0x7fd6ff, d: 14,
+    text: 'A phospholipid bilayer studded with proteins, described by the fluid mosaic model. It is selectively permeable: it controls what enters and leaves the cell and carries receptors for cell signalling.',
+    terms: [['phospholipid bilayer', 'lớp kép phospholipid'], ['selectively permeable', 'thấm chọn lọc'], ['fluid mosaic model', 'mô hình khảm động']] },
+  nucleus: { en: 'Nucleus', vi: 'Nhân', color: 0x5b6cff, d: 9,
+    text: 'Stores the cell\'s DNA as chromatin and is where transcription happens. It is wrapped in the nuclear envelope, a double membrane pierced by nuclear pores that let mRNA out and proteins in.',
+    terms: [['nuclear envelope', 'màng nhân'], ['nuclear pore', 'lỗ nhân'], ['chromatin', 'chất nhiễm sắc'], ['transcription', 'phiên mã']] },
+  nucleolus: { en: 'Nucleolus', vi: 'Nhân con, hạch nhân', color: 0xc9b6ff, d: 2.4,
+    text: 'A dense region inside the nucleus with no membrane of its own. It makes ribosomal RNA and assembles the two ribosomal subunits, which then leave through the nuclear pores.',
+    terms: [['ribosomal RNA (rRNA)', 'ARN ribosome'], ['ribosomal subunit', 'tiểu đơn vị ribosome']] },
+  rer: { en: 'Rough endoplasmic reticulum', vi: 'Lưới nội chất hạt', color: 0x2fc6b0, d: 8,
+    text: 'Flattened sacs called cisternae, continuous with the nuclear envelope and covered in ribosomes. Proteins made here are folded and modified, then sent in vesicles to the Golgi, bound for secretion, membranes or lysosomes.',
+    terms: [['cisternae', 'các túi dẹt (xoang)'], ['secretory protein', 'protein tiết'], ['glycosylation', 'glycosyl hóa']] },
+  ribosome: { en: 'Ribosome', vi: 'Ribosome', color: 0xffe2a0, d: 1.2,
+    text: 'Where translation happens: it reads mRNA and joins amino acids into a polypeptide. It is made of rRNA and protein and has no membrane. In the cytoplasm of eukaryotes it is 80S, built from a 60S and a 40S subunit.',
+    terms: [['translation', 'dịch mã'], ['polypeptide', 'chuỗi polypeptide'], ['80S (60S + 40S)', 'ribosome nhân thực']] },
+  ser: { en: 'Smooth endoplasmic reticulum', vi: 'Lưới nội chất trơn', color: 0x7ee081, d: 6,
+    text: 'A network of tubules with no ribosomes. It synthesises lipids and steroids, detoxifies drugs and poisons (so liver cells are full of it), and stores calcium ions.',
+    terms: [['tubule', 'ống nhỏ'], ['lipid synthesis', 'tổng hợp lipid'], ['detoxification', 'khử độc']] },
+  golgi: { en: 'Golgi apparatus', vi: 'Bộ máy Golgi', color: 0xf2c14e, d: 6,
+    text: 'A stack of curved cisternae. Vesicles from the ER arrive at the cis face; proteins are modified, sorted and packaged, then leave from the trans face in new vesicles.',
+    terms: [['cis face', 'mặt cis (mặt nhận)'], ['trans face', 'mặt trans (mặt xuất)'], ['modify, sort, package', 'biến đổi, phân loại, đóng gói']] },
+  vesicle: { en: 'Vesicle', vi: 'Túi vận chuyển', color: 0xa8dcff, d: 1.8,
+    text: 'A small membrane-bound sac that carries material between organelles and to the plasma membrane. Secretory vesicles fuse with the membrane and release their contents by exocytosis.',
+    terms: [['exocytosis', 'xuất bào'], ['endocytosis', 'nhập bào'], ['membrane-bound', 'có màng bao bọc']] },
+  lysosome: { en: 'Lysosome', vi: 'Lysosome, tiêu thể', color: 0xe0569b, d: 2,
+    text: 'A vesicle of hydrolytic enzymes kept at an acidic pH of about 5. It digests worn-out organelles, food particles and engulfed pathogens.',
+    terms: [['hydrolytic enzyme', 'enzyme thủy phân'], ['autophagy', 'tự thực bào'], ['phagocytosis', 'thực bào']] },
+  peroxisome: { en: 'Peroxisome', vi: 'Peroxisome', color: 0xb7e35a, d: 1.6,
+    text: 'A small single-membrane compartment that breaks down fatty acids and neutralises toxic by-products. Its enzyme catalase converts hydrogen peroxide into water and oxygen.',
+    terms: [['catalase', 'enzyme catalase'], ['hydrogen peroxide (H₂O₂)', 'hydro peroxide'], ['fatty acid oxidation', 'oxi hóa axit béo']] },
+  mito: { en: 'Mitochondrion', vi: 'Ti thể', color: 0xff7a3d, d: 3.2,
+    text: 'The site of aerobic respiration. The Krebs cycle runs in the matrix and oxidative phosphorylation on the folded inner membrane, the cristae, producing most of the cell\'s ATP. It has its own circular DNA and 70S ribosomes.',
+    terms: [['cristae', 'mào ti thể'], ['matrix', 'chất nền'], ['aerobic respiration', 'hô hấp hiếu khí'], ['oxidative phosphorylation', 'phosphoryl hóa oxi hóa']] },
+  centrosome: { en: 'Centrosome', vi: 'Trung thể', color: 0xf4f0ff, d: 1.8,
+    text: 'The cell\'s main microtubule-organising centre: two centrioles at right angles, each a ring of nine microtubule triplets. It organises the spindle fibres during cell division.',
+    terms: [['centriole', 'trung tử'], ['spindle fibres', 'sợi thoi phân bào'], ['microtubule-organising centre', 'trung tâm tổ chức vi ống']] },
+  cytoskeleton: { en: 'Cytoskeleton', vi: 'Khung xương tế bào', color: 0x6f9bff, d: 6,
+    text: 'A network of protein filaments: microtubules, microfilaments of actin, and intermediate filaments. It holds the cell\'s shape, anchors organelles and gives vesicles tracks to move along. Only the microtubules are drawn here.',
+    terms: [['microtubule', 'vi ống'], ['microfilament', 'vi sợi'], ['intermediate filament', 'sợi trung gian']] },
+};
+
+// ---------- Khung render ----------
+const $ = s => document.querySelector(s);
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const canvas = $('#scene');
+const renderer = new THREE.WebGLRenderer({ canvas });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x050816);
+scene.fog = new THREE.FogExp2(0x050816, .012);
+const camera = new THREE.PerspectiveCamera(50, 1, .05, 300);
+camera.position.set(0, 16, 62);
+scene.add(camera);
+
+// Đèn pha gắn theo camera để bên trong tế bào luôn đủ sáng.
+scene.add(new THREE.HemisphereLight(0x9fb8ff, 0x1a1030, 1.1));
+const lamp = new THREE.DirectionalLight(0xffffff, 2.2);
+lamp.position.set(.5, .8, 1);
+lamp.target.position.set(0, 0, -1);
+camera.add(lamp, lamp.target);
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.minDistance = .3;
+controls.maxDistance = 55;
+controls.autoRotate = !reduce;
+controls.autoRotateSpeed = .35;
+
+// ---------- Công cụ dựng hình ----------
+// RNG có seed: tế bào giống nhau ở mọi lần tải.
+let seed = 7;
+const rnd = () => { seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const dir = () => { const z = 2 * rnd() - 1, a = 2 * Math.PI * rnd(), s = Math.sqrt(1 - z * z); return new THREE.Vector3(s * Math.cos(a), s * Math.sin(a), z); };
+const noise = new ImprovedNoise();
+
+const R = 10;                      // bán kính tế bào
+const pickables = [], mats = {}, anchors = {}, floaters = [];
+
+function mat(key, opts) {
+  const m = new THREE.MeshStandardMaterial({ color: ORG[key].color, emissive: ORG[key].color, emissiveIntensity: .22, roughness: .5, ...opts });
+  m.userData.e = m.emissiveIntensity;
+  (mats[key] ??= []).push(m);
+  return m;
+}
+function add(key, obj, parent = scene) { obj.userData.key = key; parent.add(obj); pickables.push(obj); return obj; }
+
+// Biến dạng từng đỉnh rồi tính lại pháp tuyến; gộp đỉnh trước để không lộ đường nối.
+function warp(geo, fn) {
+  geo.deleteAttribute('uv'); geo.deleteAttribute('normal');
+  geo = mergeVertices(geo);
+  const p = geo.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i); fn(v); p.setXYZ(i, v.x, v.y, v.z); }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// Vị trí các khối lớn, đặt tay; bào quan nhỏ rải ngẫu nhiên né nhau.
+const N = new THREE.Vector3(-2, .4, 0), NR = 3;     // nhân
+const G = new THREE.Vector3(5.6, .8, 1.5);          // Golgi
+const S = new THREE.Vector3(2.5, -4.6, 2.5);        // lưới nội chất trơn
+const C = new THREE.Vector3(.5, 5.2, 1.5);          // trung thể
+const taken = [[N, 5.4], [G, 2.3], [S, 2.6], [C, .9]];
+const free = (p, r) => taken.every(([q, qr]) => p.distanceTo(q) > r + qr);
+function spot(r) {
+  let p;
+  for (let n = 0; n < 400; n++) {
+    p = dir().multiplyScalar(Math.cbrt(rnd()) * (R - r - .6));
+    if (free(p, r)) break;
+  }
+  taken.push([p, r]);
+  return p;
+}
+function float(o) { floaters.push([o, o.position.clone(), dir(), rnd() * 6.28]); return o; }
+
+// ---------- Màng sinh chất: shader, gợn sóng + viền fresnel ----------
+const memMat = new THREE.ShaderMaterial({
+  uniforms: { t: { value: 0 }, glow: { value: 1 }, amp: { value: 1 }, c: { value: new THREE.Color(ORG.membrane.color) } },
+  vertexShader: `
+    uniform float t, amp; varying vec3 vN, vV, vP;
+    void main() {
+      vec3 n = normalize(position);
+      float d = sin(n.x * 4. + t * .6) * sin(n.y * 5. - t * .4) * .5 + sin(n.z * 7. + n.x * 3. + t * .5) * .3;
+      vec4 mv = modelViewMatrix * vec4(position + n * d * .22 * amp, 1.);
+      vN = normalMatrix * n; vV = -mv.xyz; vP = n;
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    uniform vec3 c; uniform float glow; varying vec3 vN, vV, vP;
+    void main() {
+      float f = pow(1. - abs(dot(normalize(vN), normalize(vV))), 2.5);
+      float mosaic = smoothstep(.55, .9, sin(vP.x * 46.) * sin(vP.y * 46.) * sin(vP.z * 46.));
+      gl_FragColor = vec4(c, (f * .5 + mosaic * .05 + .015) * glow);
+    }`,
+  transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+});
+mats.membrane = [memMat];
+scene.add(new THREE.Mesh(new THREE.IcosahedronGeometry(R, 32), memMat));
+anchors.membrane = new THREE.Vector3(0, R, 0);
+const cellSphere = new THREE.Sphere(new THREE.Vector3(), R);
+
+// ---------- Nhân, lỗ nhân, chất nhiễm sắc, nhân con ----------
+const nucR = v => 1 + .035 * noise.noise(v.x * .9, v.y * .9, v.z * .9);
+const nucleus = add('nucleus', new THREE.Mesh(
+  warp(new THREE.IcosahedronGeometry(NR, 24), v => v.multiplyScalar(nucR(v))),
+  mat('nucleus', { transparent: true, opacity: .5, depthWrite: false })));   // chỉ mặt ngoài: vào trong nhân thì không bị thành nhân che mờ
+nucleus.position.copy(N);
+nucleus.add(new THREE.PointLight(0x8f7bff, 30, 9));
+anchors.nucleus = N.clone().add(new THREE.Vector3(0, NR, 0));
+const poreAt = [];                 // vị trí lỗ nhân (toạ độ tính từ tâm nhân), mRNA sẽ chui qua một lỗ thật
+{
+  const pores = new THREE.InstancedMesh(new THREE.TorusGeometry(.09, .028, 6, 12), new THREE.MeshBasicMaterial({ color: 0xaab4ff }), 160);
+  const o = new THREE.Object3D();
+  for (let i = 0; i < 160; i++) {
+    const y = 1 - 2 * (i + .5) / 160, r = Math.sqrt(1 - y * y), a = i * 2.39996;
+    o.position.set(r * Math.cos(a), y, r * Math.sin(a)).multiplyScalar(NR);
+    o.position.multiplyScalar(nucR(o.position) + .004);
+    poreAt.push(o.position.clone());
+    o.lookAt(o.position.clone().multiplyScalar(2));
+    o.updateMatrix();
+    pores.setMatrixAt(i, o.matrix);
+  }
+  nucleus.add(pores);
+
+  const pts = [], p = new THREE.Vector3();
+  for (let i = 0; i < 90; i++) { p.addScaledVector(dir(), .95); if (p.length() > 2.4) p.setLength(2.4); pts.push(p.clone()); }
+  nucleus.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 700, .03, 5),
+    new THREE.MeshBasicMaterial({ color: 0x7d86ff, transparent: true, opacity: .55 })));
+}
+const nucleolus = add('nucleolus', new THREE.Mesh(
+  warp(new THREE.IcosahedronGeometry(.8, 10), v => v.multiplyScalar(1 + .12 * noise.noise(v.x * 3, v.y * 3, v.z * 3))),
+  mat('nucleolus', { emissiveIntensity: .5 })));
+nucleolus.position.copy(N).add(new THREE.Vector3(.6, -.3, .5));
+anchors.nucleolus = nucleolus.position.clone();
+
+// ---------- Lưới nội chất hạt: các lớp vỏ gấp nếp ôm quanh nhân, đính ribosome ----------
+{
+  const rer = new THREE.Group();
+  rer.position.copy(N); rer.rotation.set(.25, 0, -.2);
+  scene.add(rer);
+  rer.updateMatrixWorld();
+  anchors.rer = rer.localToWorld(new THREE.Vector3(3.3, 0, 1.5));
+  const m = mat('rer', { side: THREE.DoubleSide }), studs = [];
+  for (let i = 0; i < 5; i++) {
+    const g = warp(new THREE.SphereGeometry(NR + .6 + i * .4, 90, 30, Math.PI * .75 + i * .45, Math.PI * (1.25 - i * .07), Math.PI * .24, Math.PI * .52), v =>
+      v.multiplyScalar(1 + .035 * Math.sin(Math.atan2(v.z, v.x) * 10 + i * 2) + .03 * noise.noise(v.x * .8, v.y * .8, v.z * .8 + i * 9)));
+    add('rer', new THREE.Mesh(g, m), rer).userData.focus = anchors.rer;
+    const p = g.attributes.position;
+    for (let j = 0; j < p.count; j += 3) if (rnd() < .6)
+      studs.push(new THREE.Vector3().fromBufferAttribute(p, j).multiplyScalar(rnd() < .5 ? 1.012 : .988));
+  }
+  const dots = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(.045, 0), mat('ribosome'), studs.length);
+  const mx = new THREE.Matrix4();
+  studs.forEach((v, i) => dots.setMatrixAt(i, mx.makeTranslation(v.x, v.y, v.z)));
+  rer.add(dots);
+}
+
+// ---------- Lưới nội chất trơn: mạng ống ----------
+{
+  const m = mat('ser');
+  for (let i = 0; i < 9; i++) {
+    const pts = [], p = S.clone().addScaledVector(dir(), rnd());
+    for (let j = 0; j < 6; j++) {
+      pts.push(p.clone());
+      p.addScaledVector(dir(), 1.2);
+      if (p.distanceTo(S) > 2.2) p.sub(S).setLength(2.2).add(S);
+    }
+    add('ser', new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 60, .13, 8), m)).userData.focus = S;
+  }
+  anchors.ser = S;
+}
+
+// ---------- Golgi: chồng túi dẹp cong, mặt trans (lõm) hướng ra màng ----------
+const vesGeo = new THREE.SphereGeometry(1, 16, 12);
+const vesMat = mat('vesicle', { transparent: true, opacity: .75 });
+{
+  const golgi = new THREE.Group();
+  golgi.position.copy(G);
+  golgi.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), G.clone().sub(N).normalize());
+  scene.add(golgi);
+  const m = mat('golgi');
+  for (let i = 0; i < 6; i++) {
+    const w = 1.75 - Math.abs(i - 2.5) * .16;
+    const g = warp(new THREE.SphereGeometry(1, 48, 20), v => {
+      const rr = v.x * v.x + v.z * v.z;
+      v.y *= .075 * (1 + 1.4 * rr * rr);            // mép túi phình ra
+      v.x *= w; v.z *= w * .6;
+      v.y += .15 * v.x * v.x + .1 * v.z * v.z + .04 * noise.noise(v.x * 2, i * 3.1, v.z * 2);
+    });
+    const c = add('golgi', new THREE.Mesh(g, m), golgi);
+    c.position.y = i * .27 - .7;
+    c.userData.focus = G;
+  }
+  for (let i = 0; i < 15; i++) {
+    const v = add('vesicle', new THREE.Mesh(vesGeo, vesMat), golgi);
+    v.scale.setScalar(.15 + rnd() * .09);
+    v.position.set(rnd() * 2.8 - 1.4, i < 10 ? 1.3 + rnd() * 1.3 : -1.2 - rnd() * .9, rnd() * 1.8 - .9);
+    float(v);
+    if (!i) { golgi.updateMatrixWorld(); anchors.vesicle = v.getWorldPosition(new THREE.Vector3()); }
+  }
+  anchors.golgi = G;
+}
+
+// ---------- Ti thể: màng ngoài trong suốt, mào gấp khúc bên trong ----------
+{
+  const outer = new THREE.CapsuleGeometry(.42, 1.3, 8, 20);
+  const zig = new THREE.CatmullRomCurve3(Array.from({ length: 13 }, (_, i) => new THREE.Vector3(i % 2 ? .24 : -.24, -.78 + i * .13, 0)));
+  const inner = new THREE.TubeGeometry(zig, 80, .075, 6);
+  const mo = mat('mito', { transparent: true, opacity: .38, depthWrite: false }), mi = mat('mito', { emissiveIntensity: .45 });
+  for (let i = 0; i < 14; i++) {
+    const g = new THREE.Group();
+    add('mito', new THREE.Mesh(inner, mi), g);
+    add('mito', new THREE.Mesh(outer, mo), g);
+    g.position.copy(spot(1.15));
+    g.rotation.set(rnd() * 6.28, rnd() * 6.28, rnd() * 6.28);
+    scene.add(float(g));
+    anchors.mito ??= g.position.clone();
+  }
+}
+
+// ---------- Lysosome, peroxisome ----------
+for (const [key, n, r] of [['lysosome', 9, .36], ['peroxisome', 8, .24]]) {
+  const g = warp(new THREE.IcosahedronGeometry(r, 6), v => v.multiplyScalar(1 + .06 * noise.noise(v.x * 5, v.y * 5, v.z * 5)));
+  const m = mat(key);
+  for (let i = 0; i < n; i++) {
+    const o = add(key, new THREE.Mesh(g, m));
+    o.position.copy(spot(r + .1));
+    float(o);
+    anchors[key] ??= o.position.clone();
+  }
+}
+
+// ---------- Ribosome tự do: một InstancedMesh ----------
+{
+  const n = 1500, im = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(.05, 0), mats.ribosome[0], n), mx = new THREE.Matrix4();
+  for (let i = 0; i < n; i++) {
+    let p;
+    do p = dir().multiplyScalar(Math.cbrt(rnd()) * (R - .7)); while (!free(p, .1));
+    im.setMatrixAt(i, mx.makeTranslation(p.x, p.y, p.z));
+    if (i === 0) anchors.ribosome = p;
+  }
+  add('ribosome', im);
+}
+
+// ---------- Trung thể: hai trung tử vuông góc, mỗi cái 9 bó vi ống ----------
+{
+  const rod = new THREE.CylinderGeometry(.035, .035, .55, 6), m = mat('centrosome', { emissiveIntensity: .4 });
+  for (let c = 0; c < 2; c++) {
+    const g = new THREE.Group();
+    for (let i = 0; i < 9; i++) {
+      const a = i / 9 * Math.PI * 2, r = add('centrosome', new THREE.Mesh(rod, m), g);
+      r.position.set(Math.cos(a) * .14, 0, Math.sin(a) * .14);
+      r.userData.focus = C;
+    }
+    g.position.copy(C);
+    if (c) { g.rotation.z = Math.PI / 2; g.position.add(new THREE.Vector3(.48, -.12, 0)); }
+    scene.add(g);
+  }
+  anchors.centrosome = C;
+}
+
+// ---------- Bộ khung: vi ống tỏa từ trung thể ra màng, né nhân ----------
+{
+  const pos = [], seg = new THREE.Line3(), near = new THREE.Vector3();
+  let far = 0;
+  for (let n = 0; n < 44; n++) {
+    const end = dir().multiplyScalar(R * .96);
+    seg.set(C, end).closestPointToPoint(N, true, near);
+    if (near.distanceTo(N) < NR + .5) { n--; continue; }
+    const mid = C.clone().lerp(end, .5).addScaledVector(dir(), .9);
+    const pts = new THREE.QuadraticBezierCurve3(C, mid, end).getPoints(24);
+    for (let i = 0; i < 24; i++) pos.push(...pts[i].toArray(), ...pts[i + 1].toArray());
+    if (end.distanceTo(N) > far) { far = end.distanceTo(N); anchors.cytoskeleton = pts[18]; }   // nhãn nằm xa nhân cho đỡ chồng
+  }
+  const m = new THREE.LineBasicMaterial({ color: ORG.cytoskeleton.color, transparent: true, opacity: .3 });
+  mats.cytoskeleton = [m];
+  add('cytoskeleton', new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)), m));
+}
+
+// ---------- Hậu kỳ ----------
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
+composer.setPixelRatio(renderer.getPixelRatio());
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), .55, .6, .5));
+composer.addPass(new OutputPass());
+function resize() {
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+resize();
+
+// ---------- Giao diện: danh mục, nhãn, bảng thông tin ----------
+const info = $('#info'), tip = $('#tip'), labels = $('#labels'), labelEls = [];
+for (const [key, o] of Object.entries(ORG)) {
+  const c = '#' + o.color.toString(16).padStart(6, '0');
+  const li = document.createElement('li');
+  li.innerHTML = `<button data-key="${key}" style="--c:${c}"><i></i><span lang="en">${o.en}</span><small>${o.vi}</small></button>`;
+  $('#index ul').append(li);
+  const lb = document.createElement('button');
+  lb.dataset.key = key; lb.lang = 'en'; lb.textContent = o.en; lb.style.setProperty('--c', c);
+  labels.append(lb);
+  labelEls.push([anchors[key], lb]);
+}
+
+let sel = null, fly = null;
+function glow(key, on) {
+  for (const m of mats[key]) {
+    if (m.isLineBasicMaterial) m.opacity = on ? .95 : .3;
+    else if (m.uniforms) m.uniforms.glow.value = on ? 2 : 1;
+    else m.emissiveIntensity = on ? Math.min(.75, m.userData.e * 2 + .1) : m.userData.e;   // chặn trần để bloom không cháy trắng
+  }
+}
+function flyTo(p, d) {
+  controls.autoRotate = false; followBox.checked = false;
+  fly = { t: p.clone(), p: p.clone().addScaledVector(camera.position.clone().sub(p).normalize(), d) };
+}
+function select(key, focus) {
+  if (sel) glow(sel, false);
+  sel = key;
+  for (const b of document.querySelectorAll('#index button')) b.setAttribute('aria-current', b.dataset.key === key);
+  info.hidden = !key || quiz.on;                   // đang quiz thì không mở bảng thông tin: đó là đáp án
+  if (key && quiz.on && !quiz.done) { quiz.pick = key; paint(); }
+  if (!key) return;
+  const o = ORG[key];
+  glow(key, true);
+  info.style.setProperty('--c', '#' + o.color.toString(16).padStart(6, '0'));
+  info.querySelector('h2').textContent = o.en;
+  info.querySelector('.vi').textContent = o.vi;
+  info.querySelector('.text').textContent = o.text;
+  info.querySelector('dl').innerHTML = o.terms.map(([en, vi]) => `<dt lang="en">${en}</dt><dd>${vi}</dd>`).join('');
+  if (focus) flyTo(focus, o.d);
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-key]');
+  if (b) select(b.dataset.key, anchors[b.dataset.key]);
+});
+$('#close').onclick = () => select(null);
+const toggle = $('#toggle');
+toggle.onclick = () => {
+  labels.hidden = !labels.hidden;
+  toggle.textContent = labels.hidden ? 'Hiện nhãn' : 'Ẩn nhãn';
+  toggle.setAttribute('aria-pressed', !labels.hidden);
+};
+
+// ---------- Chọn bào quan bằng tia ----------
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), m4 = new THREE.Matrix4();
+ray.params.Line.threshold = .06;
+function pick(e) {
+  ray.setFromCamera(ndc.set(e.clientX / innerWidth * 2 - 1, 1 - e.clientY / innerHeight * 2), camera);
+  return ray.intersectObjects(pickables, false).filter(h => h.object.visible);   // Raycaster không tự bỏ vật đang ẩn
+}
+function focusOf(h) {
+  const o = h.object;
+  if (o.userData.focus) return o.userData.focus;
+  if (o.isLineSegments) return h.point;
+  if (h.instanceId != null) { o.getMatrixAt(h.instanceId, m4); return new THREE.Vector3().setFromMatrixPosition(m4).applyMatrix4(o.matrixWorld); }
+  return o.getWorldPosition(new THREE.Vector3());
+}
+let down = null, hover = null;
+canvas.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; tip.hidden = true; });
+canvas.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') hover = e; });
+canvas.addEventListener('pointerleave', () => { hover = null; tip.hidden = true; });
+canvas.addEventListener('pointerup', e => {
+  const moved = down && Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5;
+  down = null;
+  if (moved) return;
+  const hits = pick(e);
+  let h = hits.find(x => !x.object.isLineSegments) ?? hits[0];   // vi ống mảnh, không được cướp click của vật phía sau
+  // Nhân con nằm trong nhân: bấm nhân lần hai thì chọn xuyên vào trong.
+  if (h && sel === 'nucleus' && h.object === nucleus) h = hits.find(x => x.object === nucleolus) ?? h;
+  if (h) select(h.object.userData.key, focusOf(h));
+  else if (!quiz.on) select(ray.ray.intersectsSphere(cellSphere) ? 'membrane' : null);   // đang quiz: bấm trượt không được tự đổi đáp án thành màng   // màng: chỉ hiện thông tin, không bay
+});
+
+// ---------- Bàn phím ----------
+const keys = new Set();
+addEventListener('keydown', e => {
+  if (e.target.matches?.('input')) return;       // đang gõ chuỗi DNA thì không bay
+  keys.add(e.code);
+  if (e.code === 'Escape') select(null);
+  if (e.code === 'KeyL') toggle.click();
+});
+addEventListener('keyup', e => keys.delete(e.code));
+addEventListener('blur', () => keys.clear());
+controls.addEventListener('start', () => { fly = null; controls.autoRotate = false; followBox.checked = false; });
+const axis = (pos, neg) => (keys.has(pos) ? 1 : 0) - (keys.has(neg) ? 1 : 0);
+
+// ---------- Giai đoạn 2: central dogma ----------
+// Sinh học: thuần hàm, không đụng tới cảnh 3D.
+const CODE = 'FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG';   // bảng mã chuẩn, thứ tự T C A G
+const AA3 = { A: 'Ala', R: 'Arg', N: 'Asn', D: 'Asp', C: 'Cys', Q: 'Gln', E: 'Glu', G: 'Gly', H: 'His', I: 'Ile', L: 'Leu', K: 'Lys', M: 'Met', F: 'Phe', P: 'Pro', S: 'Ser', T: 'Thr', W: 'Trp', Y: 'Tyr', V: 'Val', '*': '***' };
+const BASE = { A: '#4ade80', T: '#f87171', U: '#fb923c', G: '#facc15', C: '#60a5fa' };
+const aaColor = a => a === '*' ? '#9ba8cc' : 'DE'.includes(a) ? '#f2667a' : 'KRH'.includes(a) ? '#6aa5ff' : 'STCYNQ'.includes(a) ? '#5fd3a2' : '#d9c58a';
+
+// dna = mạch mã hóa 5'→3'. Ribosome bắt đầu ở AUG đầu tiên, dừng ở stop codon hoặc khi hết mRNA.
+function express(dna) {
+  const mrna = dna.replaceAll('T', 'U'), start = mrna.indexOf('AUG'), codons = [];
+  let stop = null;
+  if (start >= 0) for (let i = start; i + 3 <= dna.length && !stop; i += 3) {
+    const [a, b, c] = [...dna.slice(i, i + 3)].map(x => 'TCAG'.indexOf(x));
+    codons.push(CODE[a * 16 + b * 4 + c]);
+    if (codons.at(-1) === '*') stop = mrna.slice(i, i + 3);
+  }
+  return { mrna, template: [...dna].map(b => 'TAGC'['ATCG'.indexOf(b)]).join(''), start, codons, stop };
+}
+
+// Vật thể 3D, tạo một lần, dùng lại mỗi lần chạy.
+const MAXN = 120, Dc = N.clone().add(new THREE.Vector3(0, 1.1, -.2));      // tâm đoạn DNA, nằm trong nhân
+const beadGeo = new THREE.IcosahedronGeometry(1, 1), beadMat = new THREE.MeshStandardMaterial({ color: 0xd0d0d0, roughness: .55 });
+function beads(n) {
+  const im = new THREE.InstancedMesh(beadGeo, beadMat, n);
+  im.setColorAt(0, new THREE.Color()); im.frustumCulled = false; im.count = 0;
+  scene.add(im);
+  return im;
+}
+// DNA: khung đường-phosphate màu trung tính ở ngoài, base tô màu quay vào trong. Hai mạch: i và n + i.
+const backbone = beads(MAXN * 2), bases = beads(MAXN * 2), rna = beads(MAXN), chain = beads(MAXN / 3);
+const blobGeo = warp(new THREE.IcosahedronGeometry(1, 5), v => v.multiplyScalar(1 + .1 * noise.noise(v.x * 2, v.y * 2, v.z * 2)));
+function blob(color, opacity) {
+  const m = new THREE.Mesh(blobGeo, new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: .1, transparent: true, opacity, depthWrite: false }));
+  m.visible = false;
+  scene.add(m);
+  return m;
+}
+const polymerase = blob(0xff8fc7, .3), subL = blob(0xe0b060, .45), subS = blob(0xe0b060, .45);
+
+// Lỗ nhân mRNA đi qua: lỗ thật gần hướng mặt trước nhất (phía không bị lưới nội chất hạt che).
+const want = new THREE.Vector3(.1, .15, 1).normalize();
+const pore = poreAt.reduce((a, b) => b.dot(want) > a.dot(want) ? b : a);
+const pHat = pore.clone().normalize(), uHat = new THREE.Vector3(0, 1, 0).addScaledVector(pHat, -pHat.y).normalize();
+const ring = (a, r) => N.clone().addScaledVector(pHat, Math.cos(a) * r).addScaledVector(uHat, Math.sin(a) * r);
+
+const stageEl = $('#stage'), tracks = $('#tracks'), pauseBtn = $('#pause'), followBox = $('#follow');
+const STAGE = [
+  'Transcription (phiên mã), trong nhân. RNA polymerase tách hai mạch, đọc mạch khuôn theo chiều 3′→5′ và nối mRNA theo chiều 5′→3′.',
+  'mRNA rời nhân qua nuclear pore (lỗ nhân), đầu 5′ đi trước, ra bào tương gặp ribosome.',
+  'Translation (dịch mã), ở bào tương. Ribosome bắt đầu tại start codon AUG, đọc từng codon và nối amino acid thành polypeptide.',
+];
+let D = null;      // trạng thái lần chạy hiện tại
+
+function stage(ph) {
+  D.phase = ph; D.t = 0;
+  const len = D.r.codons.length - (D.r.stop ? 1 : 0);
+  stageEl.className = '';
+  stageEl.textContent = STAGE[ph] ?? (D.r.start < 0 ? 'mRNA này không có start codon AUG nên ribosome không dịch mã.'
+    : D.r.stop ? `Xong. Gặp stop codon ${D.r.stop}, ribosome nhả chuỗi polypeptide dài ${len} amino acid.`
+    : `Hết mRNA mà chưa gặp stop codon. Chuỗi dang dở dài ${len} amino acid; trong tế bào thật ribosome sẽ kẹt lại.`);
+}
+
+function run(dna) {
+  const n = dna.length, sp = Math.min(.05, 3.6 / n), r = express(dna), L = (n - 1) * sp;
+  // Đường đi của mRNA: nằm song song phía trên DNA, vòng ra lỗ nhân, rồi lượn quanh nhân ở bào tương.
+  const A = Dc.clone().add(new THREE.Vector3(L / 2, .45, 0)), B = Dc.clone().add(new THREE.Vector3(-L / 2, .45, 0));
+  const pts = [A, A.clone().lerp(B, .5), B, B.clone().add(new THREE.Vector3(-.3, .1, .35)), ring(0, 2.2), N.clone().add(pore), ring(0, 3.5), ring(.25, 4.3)];
+  for (let a = .5; a < 2.05; a += .3) pts.push(ring(a, 4.6));
+  const path = new THREE.CatmullRomCurve3(pts);
+  path.arcLengthDivisions = 600;
+  const len = path.getLength(), Rb = ring(.5, 4.6);
+  let uR = 0, best = Infinity;
+  for (let u = 0; u <= 1; u += 1 / 600) { const d = path.getPointAt(u).distanceTo(Rb); if (d < best) { best = d; uR = u; } }
+  const sR = uR * len, tan = path.getTangentAt(uR), rHat = Rb.clone().sub(N).normalize(), side = tan.clone().cross(rHat).normalize();
+  if (side.x < 0) side.negate();
+
+  const m = r.codons.length;
+  D = { n, sp, r, path, len, Rb, tan, rHat, side, m, phase: 0, t: 0, p: 0, pv: 0, k: 0, shift: 0, rel: 0, paused: false, sig: '',
+    // shift0: lúc codon mở đầu (hoặc đầu 5′ nếu không có AUG) vừa tới ribosome
+    shift0: sR - (n - 1) * sp + (r.start < 0 ? 0 : (r.start + 1) * sp),
+    rate: THREE.MathUtils.clamp(n / 8, 4, 14), crate: THREE.MathUtils.clamp(m / 10, 1.2, 4) };
+
+  const c = new THREE.Color();
+  for (let i = 0; i < n; i++) {
+    bases.setColorAt(i, c.set(BASE[dna[i]])); bases.setColorAt(n + i, c.set(BASE[r.template[i]])); rna.setColorAt(i, c.set(BASE[r.mrna[i]]));
+    backbone.setColorAt(i, c.set(0xc3cbe6)); backbone.setColorAt(n + i, c);
+  }
+  r.codons.forEach((a, j) => chain.setColorAt(j, c.set(aaColor(a))));
+  for (const im of [backbone, bases, rna, chain]) im.instanceColor.needsUpdate = true;
+  backbone.count = bases.count = n * 2;
+
+  // Bảng trình tự: mỗi nucleotide một ô, polypeptide thẳng cột với codon của nó.
+  const row = (label, html) => `<div><span class="lab">${label}</span>${html}</div>`;
+  const seq = (s, cls = '') => [...s].map(b => `<span class="${cls}" style="color:${BASE[b]}">${b}</span>`).join('');
+  tracks.innerHTML = row('coding strand 5′', seq(dna) + ' 3′') + row('template strand 3′', seq(r.template) + ' 5′') + row('mRNA 5′', seq(r.mrna, 'off') + ' 3′')
+    + row('polypeptide', ' '.repeat(Math.max(0, r.start)) + r.codons.map(a => `<span class="off" style="color:${aaColor(a)}">${AA3[a]}</span>`).join(''));
+  stageEl.hidden = tracks.hidden = $('#note').hidden = pauseBtn.hidden = false;
+  const cells = i => [...tracks.children[i].querySelectorAll('span:not(.lab)')];
+  D.el = { tpl: cells(1), rna: cells(2), aa: cells(3) };
+  D.cw = D.el.rna[0].getBoundingClientRect().width;
+  D.labW = tracks.querySelector('.lab').offsetWidth;
+
+  pauseBtn.textContent = 'Tạm dừng';
+  followBox.checked = true; controls.autoRotate = false;
+  molBox.checked = false; molBox.onchange();       // cận cảnh ribosome mà phân tử bay ngang thì rối: tắt, người xem tự bật lại
+  stage(0);
+}
+
+function tick(dt) {
+  D.t += dt;
+  if (D.phase === 0) {
+    D.pv = D.p = Math.min(D.n, D.p + dt * D.rate);
+    if (D.p >= D.n) stage(1);
+  } else {
+    D.pv += dt * D.rate;                           // đuôi 3′ của mRNA tiếp tục bong khỏi mạch khuôn
+    if (D.phase === 1) {
+      D.shift = Math.min(D.shift0, D.shift + dt * 1.8);
+      if (D.shift >= D.shift0) stage(D.r.start < 0 ? 3 : 2);
+    } else if (D.phase === 2) {
+      D.k = Math.min(D.m, D.k + dt * D.crate);
+      D.shift = D.shift0 + D.k * 3 * D.sp;
+      if (D.k >= D.m) stage(3);
+    }
+  }
+}
+
+const q = new THREE.Vector3(), q2 = new THREE.Vector3(), q3 = new THREE.Vector3(), mx = new THREE.Matrix4();
+const put = (im, i, pos, r) => im.setMatrixAt(i, mx.makeScale(r, r, r).setPosition(pos));
+const smooth = THREE.MathUtils.smoothstep;
+const along = (s, out) => D.path.getPointAt(THREE.MathUtils.clamp(s / D.len, 0, 1), out);
+
+function draw() {
+  const { n, sp, phase, r } = D;
+  const bub = phase === 0 ? 1 : phase === 1 ? Math.max(0, 1 - D.t * 2) : 0;      // bóng phiên mã, khép lại khi polymerase rời đi
+  const made = phase ? n : Math.floor(D.p);
+  for (let i = 0; i < n; i++) {
+    // Trong bóng phiên mã bán kính xoắn nở ra, hai base của một cặp rời nhau: liên kết hydro đứt.
+    const w = bub * Math.exp(-(((i - D.p) / 5) ** 2)), a = i * .6, rad = sp * 3 * (1 + 1.3 * w);
+    const oy = Math.cos(a) * rad, oz = Math.sin(a) * rad;
+    q2.set((i - (n - 1) / 2) * sp, 0, 0).add(Dc);                                 // điểm trên trục xoắn
+    put(backbone, i, q.set(0, oy, oz).add(q2), sp * 1.05);
+    put(backbone, n + i, q.set(0, -oy, -oz).add(q2), sp * 1.05);
+    put(bases, i, q.set(0, oy * .42, oz * .42).add(q2), sp * .95);
+    put(bases, n + i, q.set(0, -oy * .42, -oz * .42).add(q2), sp * .95);
+    if (i < made) {
+      // nucleotide mới bắt cặp với base mạch khuôn, rồi bong dần ra thành sợi mRNA tự do
+      q3.set(0, -oy * .1, -oz * .1).add(q2).lerp(along(D.shift + (n - 1 - i) * sp, q), smooth(D.pv - i, 0, 9));
+      put(rna, i, q3, sp * .8);
+    }
+  }
+  rna.count = made;
+
+  polymerase.visible = bub > 0;
+  polymerase.position.set((D.p - (n - 1) / 2) * sp, 0, 0).add(Dc);
+  polymerase.scale.setScalar(sp * 4.4 * bub);
+
+  const done = phase === 3 && r.start >= 0, rel = D.rel = done ? smooth(D.t, 0, 1.2) : 0;   // nhả chuỗi, hai tiểu đơn vị tách ra
+  const e = phase === 1 ? smooth(D.shift, D.shift0 - 1.2, D.shift0 - .2) : phase > 1 ? 1 : 0;
+  subL.visible = subS.visible = e > 0;
+  subS.position.copy(D.Rb).addScaledVector(D.rHat, -.11 - rel * .25); subS.scale.setScalar(.15 * e);
+  subL.position.copy(D.Rb).addScaledVector(D.rHat, .14 + rel * .25); subL.scale.setScalar(.21 * e);
+
+  const shown = phase === 3 ? D.m : phase === 2 ? Math.min(D.m, Math.floor(D.k + .5)) : 0;   // số codon đã đọc xong
+  const prot = D.m - (r.stop ? 1 : 0), grown = phase === 3 ? prot : Math.min(prot, D.k + .5);
+  chain.count = Math.min(prot, shown);
+  for (let j = 0; j < chain.count; j++) {
+    const m = grown - 1 - j;                       // amino acid cũ hơn nằm xa ribosome hơn, xoắn kiểu alpha helix
+    q.copy(D.Rb).addScaledVector(D.rHat, .36 + m * .055 + rel * .5).addScaledVector(D.side, Math.cos(m * .8) * .06).addScaledVector(D.tan, Math.sin(m * .8) * .06);
+    put(chain, j, q, .04);
+  }
+  for (const im of [backbone, bases, rna, chain]) im.instanceMatrix.needsUpdate = true;
+
+  // Bảng trình tự chỉ cập nhật khi trạng thái nguyên đổi.
+  const ip = Math.floor(D.p), ik = phase === 2 ? Math.min(D.m - 1, Math.floor(D.k)) : -1, sig = `${phase}|${ip}|${ik}|${shown}`;
+  if (sig === D.sig) return;
+  D.sig = sig;
+  const cur = phase === 0 ? ip : ik < 0 ? -1 : r.start + ik * 3;
+  D.el.tpl.forEach((el, i) => el.classList.toggle('cur', phase === 0 && i === ip));
+  D.el.rna.forEach((el, i) => { el.classList.toggle('off', i >= made); el.classList.toggle('cur', ik >= 0 && i >= cur && i < cur + 3); });
+  D.el.aa.forEach((el, j) => el.classList.toggle('off', j >= shown));
+  if (cur >= 0) tracks.scrollLeft = cur * D.cw - (tracks.clientWidth - D.labW) / 2;
+}
+
+// Camera bám theo: polymerase, rồi đầu 5′ của mRNA, rồi ribosome.
+const followFly = { t: new THREE.Vector3(), p: new THREE.Vector3() };
+function follow() {
+  if (!followBox.checked) return;
+  const { t, p } = followFly, { sp } = D;
+  if (D.phase === 0) { t.set((D.p - (D.n - 1) / 2) * sp, sp * 3, 0).add(Dc); p.copy(t).add(q.set(0, sp * 10, sp * 44)); }
+  else if (D.phase === 1) { along(D.shift + (D.n - 1) * sp, t); p.copy(t).addScaledVector(pHat, 1.5).add(q.set(.5, .4, 0)); }
+  else { const h = chain.count * .055; t.copy(D.Rb).addScaledVector(D.rHat, .2 + h * .5 + D.rel * .5); p.copy(t).addScaledVector(D.side, 1.5 + h * .7).addScaledVector(D.rHat, .2); }
+  // Hạ cả camera lẫn điểm ngắm để chủ thể nổi lên trên, không bị bảng trình tự che (điện thoại: bảng nằm trên).
+  const dy = p.distanceTo(t) * (innerWidth > 720 ? -.24 : .2);
+  t.y += dy; p.y += dy;
+  fly = followFly;
+}
+
+$('#dogma form').onsubmit = e => {
+  e.preventDefault();
+  const dna = $('#dna').value.toUpperCase().replace(/[\s\d]/g, ''), bad = dna.match(/[^ATGC]/);
+  if (bad || dna.length < 3 || dna.length > MAXN) {
+    stageEl.hidden = false; stageEl.className = 'err';
+    stageEl.textContent = bad?.[0] === 'U' ? 'Đây là DNA nên dùng T thay cho U.' : bad ? `Chỉ dùng A, T, G, C. Ký tự lạ: ${bad[0]}`
+      : `Cần từ 3 đến ${MAXN} nucleotide; chuỗi này có ${dna.length}.`;
+    return;
+  }
+  document.activeElement.blur();                   // trả bàn phím cho W A S D
+  run(dna);
+};
+pauseBtn.onclick = () => { D.paused = !D.paused; pauseBtn.textContent = D.paused ? 'Tiếp tục' : 'Tạm dừng'; };
+
+// ---------- Giai đoạn 3: khuếch tán, va chạm bằng spatial hash ----------
+const MAXM = 50000, CELL = .18, TABLE = 1 << 17;   // ô lưới ≥ đường kính hạt lớn nhất (0.17); bảng băm tối đa
+const GAMMA = 3;                                    // ma sát nhớt, 1/s
+const BOLUS = new THREE.Vector3(4.5, 3.5, 3.5);     // nơi thả đám phân tử đậm đặc
+// [tỉ lệ cộng dồn, bán kính, hệ số khuếch tán D ∝ 1/r (Stokes–Einstein), màu]: glucose, ATP, protein
+const SPECIES = [[.6, .04, .9, 0xbfe3ff], [.9, .06, .6, 0xffc45e], [1, .085, .42, 0xb99cff]];
+const pos = new Float32Array(MAXM * 3), vel = new Float32Array(MAXM * 3), rad = new Float32Array(MAXM), kick = new Float32Array(MAXM);
+const cellStart = new Int32Array(TABLE + 1), cellOf = new Int32Array(MAXM), sorted = new Int32Array(MAXM);
+const spec = new Uint8Array(MAXM);                  // loài của từng hạt: 0 glucose, 1 ATP, 2 protein
+let wallR = R - .35;                                // bán kính màng với phân tử; quiz "màng thủng" nới ra
+// GPU instancing: mọi phân tử chung một hình, một draw call; mỗi khung chỉ ghi lại 3 số vị trí của từng hạt.
+const mol = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshLambertMaterial({ color: 0x999999 }), MAXM);
+mol.frustumCulled = false;
+scene.add(mol);
+const MX = mol.instanceMatrix.array;
+{
+  const c = new THREE.Color();
+  for (let i = 0; i < MAXM; i++) {
+    const u = Math.random(), [, r, diff, color] = SPECIES[spec[i] = SPECIES.findIndex(s => u < s[0])];
+    rad[i] = r; kick[i] = GAMMA * Math.sqrt(2 * diff);          // biên độ nhiễu cho ra đúng D ở trạng thái dừng
+    MX[i * 16] = MX[i * 16 + 5] = MX[i * 16 + 10] = r; MX[i * 16 + 15] = 1;
+    mol.setColorAt(i, c.set(color));
+  }
+}
+let nMol = 0, pairs = 0, simMs = 0, fps = 60, frame = 0, mask = TABLE - 1;
+
+function release(n) {
+  nMol = mol.count = n;
+  mask = (1 << Math.ceil(Math.log2(n * 2))) - 1;   // bảng băm vừa đủ ≥ 2n ô: ít hạt thì khỏi quét cả bảng lớn
+  vel.fill(0);
+  const rb = 3 * Math.cbrt(n / 20000);              // giữ mật độ ban đầu như nhau dù n khác nhau
+  for (let i = 0; i < n; i++) dir().multiplyScalar(Math.cbrt(rnd()) * rb).add(BOLUS).toArray(pos, i * 3);
+}
+
+const cell = v => Math.floor(v / CELL);
+const hash = (x, y, z) => ((x * 92837111) ^ (y * 689287499) ^ (z * 283923481)) & mask;
+
+// 13 ô "phía trước" trong 26 ô kề: mỗi cặp ô kề nhau chỉ được duyệt một lần, từ một phía.
+const FWD = [];
+for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) if (x > 0 || (!x && (y > 0 || (!y && z > 0)))) FWD.push(x, y, z);
+const cellAt = new Int32Array(MAXM * 3);            // toạ độ ô lúc dựng bảng; hit() đẩy hạt nên không tính lại giữa chừng
+
+// Gọi hit(i, j) cho mọi cặp có thể chạm nhau. brute: mọi cặp, O(n²). Ngược lại: ô của hạt và 13 ô phía trước, O(n).
+// ponytail: hai ô khác nhau trùng mã băm thì một cặp có thể được gọi hai lần; hit() chịu được, cần chính xác thì so toạ độ ô.
+function sweep(brute) {
+  const n = nMol;
+  if (brute) { for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) hit(i, j); return; }
+  // Dựng bảng bằng counting sort: đếm, cộng dồn, rồi xếp hạt vào đúng ô. Không cấp phát gì mỗi khung.
+  cellStart.fill(0, 0, mask + 2);
+  for (let i = 0, a = 0; i < n; i++, a += 3) {
+    const x = cellAt[a] = cell(pos[a]), y = cellAt[a + 1] = cell(pos[a + 1]), z = cellAt[a + 2] = cell(pos[a + 2]);
+    cellStart[cellOf[i] = hash(x, y, z)]++;
+  }
+  for (let c = 0, s = 0; c <= mask + 1; c++) cellStart[c] = s += cellStart[c];
+  for (let i = 0; i < n; i++) sorted[--cellStart[cellOf[i]]] = i;
+  for (let i = 0, a = 0; i < n; i++, a += 3) {
+    const own = cellOf[i], cx = cellAt[a], cy = cellAt[a + 1], cz = cellAt[a + 2];
+    for (let s = cellStart[own], e = cellStart[own + 1]; s < e; s++) if (sorted[s] > i) hit(i, sorted[s]);
+    for (let f = 0; f < 39; f += 3) {
+      const h = hash(cx + FWD[f], cy + FWD[f + 1], cz + FWD[f + 2]);
+      for (let s = cellStart[h], e = cellStart[h + 1]; s < e; s++) hit(i, sorted[s]);
+    }
+  }
+}
+
+let dry = null;    // tự kiểm: Set nhận các cặp chồng nhau, không đẩy hạt
+// Hai hạt chồng nhau: đẩy ra mỗi bên một nửa, đổi thành phần vận tốc dọc pháp tuyến (đàn hồi, coi khối lượng bằng nhau).
+function hit(i, j) {
+  pairs++;
+  const a = i * 3, b = j * 3, rr = rad[i] + rad[j], ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], uz = pos[b + 2] - pos[a + 2], d2 = ux * ux + uy * uy + uz * uz;
+  if (d2 >= rr * rr || d2 === 0) return;
+  if (dry) { dry.add(Math.min(i, j) * MAXM + Math.max(i, j)); return; }
+  const d = Math.sqrt(d2), nx = ux / d, ny = uy / d, nz = uz / d, push = (rr - d) / 2;
+  pos[a] -= nx * push; pos[a + 1] -= ny * push; pos[a + 2] -= nz * push;
+  pos[b] += nx * push; pos[b + 1] += ny * push; pos[b + 2] += nz * push;
+  const vn = (vel[b] - vel[a]) * nx + (vel[b + 1] - vel[a + 1]) * ny + (vel[b + 2] - vel[a + 2]) * nz;
+  if (vn >= 0) return;                              // đang rời nhau
+  vel[a] += vn * nx; vel[a + 1] += vn * ny; vel[a + 2] += vn * nz;
+  vel[b] -= vn * nx; vel[b + 1] -= vn * ny; vel[b + 2] -= vn * nz;
+}
+
+// ponytail: vật cản chỉ có màng và nhân; phân tử bay xuyên ti thể, Golgi. Cần thì thêm các cầu trong `taken`.
+function simulate(dt) {
+  const n = nMol, damp = Math.exp(-GAMMA * dt), sq = Math.sqrt(12 * dt), wall = wallR, core = NR + .12;
+  for (let i = 0, a = 0; i < n; i++, a += 3) {
+    // Langevin: ma sát kéo vận tốc về 0, nhiễu ngẫu nhiên đẩy đi. (random − ½)·√12 có phương sai 1.
+    const k = kick[i] * sq, r = rad[i];
+    let vx = vel[a] * damp + (Math.random() - .5) * k, vy = vel[a + 1] * damp + (Math.random() - .5) * k, vz = vel[a + 2] * damp + (Math.random() - .5) * k;
+    let x = pos[a] + vx * dt, y = pos[a + 1] + vy * dt, z = pos[a + 2] + vz * dt;
+    let d2 = x * x + y * y + z * z, lim = wall - r;
+    if (d2 > lim * lim) {                           // chạm màng: bật vào trong
+      const d = Math.sqrt(d2), nx = x / d, ny = y / d, nz = z / d, vn = vx * nx + vy * ny + vz * nz;
+      x = nx * lim; y = ny * lim; z = nz * lim;
+      if (vn > 0) { vx -= 2 * vn * nx; vy -= 2 * vn * ny; vz -= 2 * vn * nz; }
+    }
+    const ex = x - N.x, ey = y - N.y, ez = z - N.z;
+    d2 = ex * ex + ey * ey + ez * ez; lim = core + r;
+    if (d2 < lim * lim) {                           // chạm nhân: bật ra ngoài
+      const d = Math.sqrt(d2) || 1, nx = ex / d, ny = ey / d, nz = ez / d, vn = vx * nx + vy * ny + vz * nz;
+      x = N.x + nx * lim; y = N.y + ny * lim; z = N.z + nz * lim;
+      if (vn < 0) { vx -= 2 * vn * nx; vy -= 2 * vn * ny; vz -= 2 * vn * nz; }
+    }
+    pos[a] = x; pos[a + 1] = y; pos[a + 2] = z; vel[a] = vx; vel[a + 1] = vy; vel[a + 2] = vz;
+  }
+  pairs = 0;
+  sweep(bruteBox.checked);
+  for (let i = 0, a = 0, m = 12; i < n; i++, a += 3, m += 16) { MX[m] = pos[a]; MX[m + 1] = pos[a + 1]; MX[m + 2] = pos[a + 2]; }
+  mol.instanceMatrix.addUpdateRange(0, n * 16);     // chỉ đẩy phần đang dùng lên GPU
+  mol.instanceMatrix.needsUpdate = true;
+}
+
+const molBox = $('#mol'), bruteBox = $('#brute'), countEl = $('#count'), statsEl = $('#simStats');
+const fmt = x => Math.round(x).toLocaleString('vi-VN');
+function recount() {
+  if (bruteBox.checked && countEl.value > 4000) countEl.value = 4000;   // O(n²) ở 20.000 hạt là 200 triệu phép thử mỗi khung: treo máy
+  $('#countOut').textContent = fmt(countEl.value);
+  release(+countEl.value);
+}
+countEl.oninput = bruteBox.onchange = $('#release').onclick = recount;
+molBox.onchange = () => {
+  mol.visible = molBox.checked;
+  // MSAA 4x tốn khoảng nửa thời gian render trên GPU tích hợp. Khi hàng chục nghìn chấm phủ kín cảnh thì răng cưa khó thấy: tắt để giữ khung hình.
+  for (const rt of [composer.renderTarget1, composer.renderTarget2]) { rt.samples = molBox.checked ? 0 : 4; rt.dispose(); }
+};
+if (innerWidth < 720) countEl.value = 8000;
+molBox.checked = !reduce;
+molBox.onchange(); recount();
+
+// ---------- Giai đoạn 4: quiz chẩn đoán ----------
+// Mỗi ca làm hỏng một bào quan. Bào quan hỏng trông vẫn bình thường; cái thấy được là hậu quả của nó.
+let drift = 1;                                      // biên độ trôi của bào quan: 0 khi hết ATP, lớn khi mất bộ khung
+const vesicles = pickables.filter(o => o.userData.key === 'vesicle'), freeRibo = pickables.find(o => o.isInstancedMesh), microtubules = pickables.find(o => o.isLineSegments);
+const junk = new THREE.InstancedMesh(blobGeo, new THREE.MeshStandardMaterial({ roughness: .8, emissiveIntensity: .25 }), 400);   // chất tích tụ
+junk.frustumCulled = false; junk.count = 0;
+scene.add(junk);
+
+// Ẩn/hiện cả một loài phân tử (0 glucose, 1 ATP, 2 protein) bằng cách đổi tỉ lệ trong ma trận instance.
+function species(sp, on) { for (let i = 0, m = 0; i < MAXM; i++, m += 16) if (spec[i] === sp) MX[m] = MX[m + 5] = MX[m + 10] = on ? rad[i] : 0; }
+function litter(n, color = 0, lo = 0, hi = 0) {
+  junk.count = n;
+  junk.material.color.set(color); junk.material.emissive.set(color);
+  for (let i = 0; i < n; i++) {
+    let p;
+    do p = dir().multiplyScalar(Math.cbrt(rnd()) * (R - 1)); while (p.distanceTo(N) < NR + .6);
+    const s = lo + rnd() * (hi - lo);
+    junk.setMatrixAt(i, mx.makeScale(s, s, s).setPosition(p));
+  }
+  junk.instanceMatrix.needsUpdate = true;
+}
+const noVesicles = on => vesicles.forEach(v => v.visible = !on);
+
+// see: điều nhìn thấy trong cảnh 3D. clues: kết quả xét nghiệm. why: giải thích sau khi chốt. fx(on): bật/tắt triệu chứng.
+const CASES = [
+  { key: 'membrane', see: 'Phân tử tràn ra ngoài màng, tế bào không còn giữ được chúng.',
+    clues: ['Ions and small molecules cross the cell boundary freely in both directions.', 'The cell can no longer keep a concentration gradient, for example of Na⁺ and K⁺.', 'Water moves in by osmosis and the cell swells.'],
+    why: 'The plasma membrane is a selectively permeable phospholipid bilayer. Once it leaks, concentration gradients collapse and water follows the solutes by osmosis, until the cell bursts (lysis).',
+    fx: on => wallR = on ? 15 : R - .35 },
+  { key: 'nucleus', see: 'Phân tử protein (màu tím) biến mất khỏi bào tương.',
+    clues: ['No mRNA can be detected in the cytoplasm.', 'Ribosomes are intact but idle: they have no template to read.', 'Existing proteins wear out and are not replaced.'],
+    why: 'DNA is stored and transcribed in the nucleus, and mRNA must leave through the nuclear pores. Without mRNA, translation stops everywhere in the cell, even though the ribosomes themselves are fine.',
+    fx: on => species(2, !on) },
+  { key: 'nucleolus', see: 'Ribosome tự do thưa hẳn đi, protein (màu tím) biến mất theo.',
+    clues: ['No ribosomal RNA (rRNA) is being made.', 'mRNA is still transcribed and exported normally.', 'The number of ribosomes falls over time, and protein synthesis slows with it.'],
+    why: 'The nucleolus makes rRNA and assembles the ribosomal subunits. Transcription of mRNA continues, but as old ribosomes are lost and not replaced, the cell runs out of machines to translate it.',
+    fx: on => { freeRibo.count = on ? 120 : 1500; species(2, !on); } },
+  { key: 'rer', see: 'Các túi vận chuyển quanh bộ máy Golgi biến mất.',
+    clues: ['Proteins meant for secretion and for membranes are not being made.', 'Proteins that stay in the cytosol are still made normally by free ribosomes.', 'The Golgi apparatus is intact but receives no cargo.'],
+    why: 'Ribosomes bound to the rough ER make the proteins destined for secretion, membranes and lysosomes, threading them into the ER lumen to be folded. Free ribosomes are unaffected, so cytosolic proteins stay normal: that is the difference from a ribosome fault.',
+    fx: noVesicles },
+  { key: 'ribosome', see: 'Phân tử protein (màu tím) biến mất khỏi bào tương.',
+    clues: ['mRNA reaches the cytoplasm normally.', 'Ribosomes and rRNA are present in normal amounts and bind mRNA, yet no peptide bonds form.', 'Both cytosolic and secreted proteins are affected.'],
+    why: 'Ribosomes carry out translation, reading mRNA codons and joining amino acids into a polypeptide. With mRNA and normal numbers of ribosomes present but no polypeptides, the fault lies in the ribosome itself.',
+    fx: on => species(2, !on) },
+  { key: 'ser', see: 'Các hạt độc tố (vàng mù tạt) tích tụ khắp bào tương.',
+    clues: ['Drugs and toxins are no longer broken down, so they accumulate.', 'Synthesis of lipids, phospholipids and steroids has stopped.', 'Stored calcium ions (Ca²⁺) escape into the cytosol.'],
+    why: 'The smooth ER makes lipids and steroids, detoxifies drugs and poisons (liver cells are packed with it) and stores Ca²⁺. It carries no ribosomes, so protein synthesis is not directly affected.',
+    fx: on => litter(on ? 400 : 0, 0xd4c23a, .07, .11) },
+  { key: 'golgi', see: 'Các túi vận chuyển quanh bộ máy Golgi biến mất.',
+    clues: ['Vesicles from the rough ER reach and fuse with the cis face normally, but nothing buds from the trans face.', 'No secretory vesicles form, so nothing is released by exocytosis.', 'New proteins are not modified or sorted, and enzymes meant for lysosomes never arrive.'],
+    why: 'The Golgi apparatus receives proteins from the ER at its cis face, modifies and sorts them, and packages them into vesicles at its trans face. Synthesis is normal here; it is the modifying, sorting and shipping that fails.',
+    fx: noVesicles },
+  { key: 'lysosome', see: 'Các khối cặn không tiêu hoá được chất đống trong bào tương.',
+    clues: ['Worn-out organelles are not recycled and accumulate.', 'Material taken in by phagocytosis stays undigested.', 'Activity of hydrolytic enzymes at acidic pH is missing.'],
+    why: 'Lysosomes contain hydrolytic enzymes that work at about pH 5, digesting engulfed material and old organelles (autophagy). When they fail, undigested material builds up, as in lysosomal storage diseases such as Tay-Sachs.',
+    fx: on => litter(on ? 70 : 0, 0x8a7a66, .12, .3) },
+  { key: 'peroxisome', see: 'Các hạt H₂O₂ (màu đỏ cam) tích tụ khắp bào tương.',
+    clues: ['Hydrogen peroxide (H₂O₂) builds up to toxic levels.', 'Catalase activity is missing.', 'Very-long-chain fatty acids are not broken down.'],
+    why: 'Peroxisomes oxidise fatty acids, and their enzyme catalase breaks down hydrogen peroxide into water and oxygen (2H₂O₂ → 2H₂O + O₂). Without them, H₂O₂ is not removed and very-long-chain fatty acids accumulate, as in Zellweger syndrome.',
+    fx: on => litter(on ? 400 : 0, 0xff6a55, .07, .11) },
+  { key: 'mito', see: 'Phân tử ATP (màu hổ phách) biến mất' + (reduce ? '.' : ', các bào quan đứng yên.'),   // giảm chuyển động: bào quan vốn không trôi
+    clues: ['ATP concentration falls sharply.', 'Oxygen consumption drops to almost zero.', 'Lactate builds up: the cell is relying on glycolysis and fermentation.'],
+    why: 'Mitochondria carry out aerobic respiration (the Krebs cycle in the matrix, oxidative phosphorylation on the cristae) and make most of the cell\'s ATP. Glycolysis in the cytosol still yields 2 ATP per glucose, with pyruvate reduced to lactate, but that is far too little.',
+    fx: on => { species(1, !on); drift = on ? 0 : 1; } },
+  { key: 'cytoskeleton', see: 'Tế bào méo mó, ' + (reduce ? '' : 'các bào quan trôi lung tung, ') + 'vi ống biến mất.',
+    clues: ['The cell loses its shape: actin microfilaments and intermediate filaments are broken down too.', 'Organelles are no longer held in place.', 'Vesicles stop travelling to the plasma membrane.'],
+    why: 'The cytoskeleton (microtubules, microfilaments, intermediate filaments) gives the cell its shape, anchors organelles and provides the tracks that motor proteins use to move vesicles. The centrosome only organises microtubules; here the filaments themselves have failed.',
+    fx: on => { drift = on ? 7 : 1; memMat.uniforms.amp.value = on ? 3.2 : 1; microtubules.visible = !on; } },
+];
+
+const quiz = { on: false, order: [], cur: null, pick: null, done: false, right: 0, total: 0 };
+function paint() {
+  const c = quiz.cur, o = ORG[c.key], verdict = $('#qVerdict');
+  $('#qNo').textContent = quiz.total + (quiz.done ? 0 : 1);
+  $('#qScore').textContent = quiz.total ? `Đúng ${quiz.right} trên ${quiz.total} ca.` : 'Một bào quan đã hỏng. Quan sát, đọc triệu chứng, rồi bấm vào bào quan bạn nghi ngờ.';
+  $('#qSee').textContent = 'Nhìn trong tế bào: ' + c.see;
+  $('#qClues').innerHTML = c.clues.map(t => `<li>${t}</li>`).join('');
+  $('#qPick').textContent = quiz.pick ? `Bạn chọn: ${ORG[quiz.pick].en} (${ORG[quiz.pick].vi}).` : 'Chưa chọn bào quan nào.';
+  $('#qPick').hidden = $('#qConfirm').hidden = quiz.done;
+  $('#qConfirm').disabled = !quiz.pick;
+  $('#qResult').hidden = !quiz.done;
+  if (!quiz.done) return;
+  const ok = quiz.pick === c.key;
+  verdict.className = ok ? 'ok' : 'no';
+  verdict.textContent = ok ? `Đúng: ${o.en} (${o.vi}).` : `Chưa đúng. Bạn chọn ${ORG[quiz.pick].en}; bào quan hỏng là ${o.en} (${o.vi}).`;
+  $('#qWhy').textContent = c.why;
+}
+function nextCase() {
+  quiz.cur?.fx(false);
+  if (!quiz.order.length) {                         // hết bộ thì xáo lại (Fisher–Yates)
+    quiz.order = CASES.slice();
+    for (let i = quiz.order.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [quiz.order[i], quiz.order[j]] = [quiz.order[j], quiz.order[i]]; }
+  }
+  quiz.cur = quiz.order.pop(); quiz.pick = null; quiz.done = false;
+  quiz.cur.fx(true);
+  select(null);
+  controls.autoRotate = false; followBox.checked = false;   // nếu đang bám theo một lượt phiên mã thì thả ra, không thì camera kẹt ở ribosome
+  $('#quiz h2').focus();
+  fly = { t: new THREE.Vector3(), p: new THREE.Vector3(8, 5, 24) };   // ca mới: lùi ra nhìn toàn tế bào
+  paint();
+}
+$('#quizStart').onclick = () => {
+  Object.assign(quiz, { on: true, right: 0, total: 0, order: [], mol: molBox.checked });
+  if (!molBox.checked) molBox.click();              // nhiều triệu chứng hiện qua phân tử
+  $('#quiz').hidden = false; $('#quizStart').hidden = $('#dock').hidden = true;   // cất bảng điều khiển: nhường chỗ quan sát
+  nextCase();
+};
+$('#quizExit').onclick = () => {
+  quiz.cur.fx(false);
+  Object.assign(quiz, { on: false, cur: null });
+  $('#quiz').hidden = true; $('#quizStart').hidden = $('#dock').hidden = false;
+  if (!quiz.mol && molBox.checked) molBox.click();  // trả ô "Hiện phân tử" về như trước khi vào quiz
+  $('#quizStart').focus();
+  select(null);
+};
+$('#qConfirm').onclick = () => {
+  quiz.done = true; quiz.total++;
+  if (quiz.pick === quiz.cur.key) quiz.right++;
+  paint();
+  $('#qNext').focus();
+  select(quiz.cur.key, anchors[quiz.cur.key]);     // bay tới bào quan hỏng thật
+};
+$('#qNext').onclick = nextCase;
+
+// ---------- Vòng lặp ----------
+const clock = new THREE.Clock(), move = new THREE.Vector3(), v = new THREE.Vector3();
+if (reduce) camera.position.set(8, 5, 24); else fly = { t: new THREE.Vector3(), p: new THREE.Vector3(8, 5, 24) };
+$('#boot').remove();
+
+renderer.setAnimationLoop(() => {
+  const raw = clock.getDelta(), dt = Math.min(raw, .05), t = clock.elapsedTime;
+
+  if (mol.visible) {
+    const t0 = performance.now();
+    simulate(dt);
+    simMs += (performance.now() - t0 - simMs) * .1;
+    if (raw > 0) fps += (1 / raw - fps) * .1;
+    if (frame++ % 20 === 0) statsEl.textContent = (bruteBox.checked ? `Đang dò mọi cặp: ${fmt(pairs)} cặp mỗi khung.`
+      : `Kiểm ${fmt(pairs)} cặp mỗi khung, thay vì ${fmt(nMol * (nMol - 1) / 2)} nếu dò mọi cặp.`) + ` Mô phỏng ${simMs.toLocaleString('vi-VN', { maximumFractionDigits: 1 })} ms, ${Math.round(fps)} khung/giây.`;
+  }
+
+  move.set(axis('KeyD', 'KeyA'), axis('KeyE', 'KeyQ'), axis('KeyS', 'KeyW'));
+  if (move.lengthSq()) {
+    fly = null; controls.autoRotate = false; followBox.checked = false;
+    move.applyQuaternion(camera.quaternion).multiplyScalar(dt * (keys.has('ShiftLeft') ? 14 : 6));
+    camera.position.add(move); controls.target.add(move);
+  }
+  if (D) { if (!D.paused) tick(dt); draw(); follow(); }
+  if (fly) {
+    const k = reduce ? 1 : 1 - Math.exp(-dt * 3.5);
+    controls.target.lerp(fly.t, k); camera.position.lerp(fly.p, k);
+    if (camera.position.distanceTo(fly.p) < .02) fly = null;
+  }
+  camera.position.clampLength(0, 70);
+  controls.update();
+
+  if (!reduce) {
+    memMat.uniforms.t.value = t;
+    for (const [o, base, d, ph] of floaters) o.position.copy(base).addScaledVector(d, Math.sin(t * .5 + ph) * .1 * drift);
+  }
+
+  if (hover && !down) {
+    const hits = pick(hover), h = hits.find(x => !x.object.isLineSegments) ?? hits[0];
+    canvas.style.cursor = h ? 'pointer' : '';
+    tip.hidden = !h;
+    if (h) { tip.textContent = ORG[h.object.userData.key].en; tip.style.transform = `translate(${hover.clientX + 14}px,${hover.clientY + 14}px)`; }
+    hover = null;
+  }
+
+  composer.render();
+
+  if (!labels.hidden) for (const [a, el] of labelEls) {
+    v.copy(a).project(camera);
+    const on = v.z < 1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1;
+    el.style.display = on ? '' : 'none';
+    if (on) el.style.transform = `translate(${(v.x + 1) / 2 * innerWidth}px,${(1 - v.y) / 2 * innerHeight}px)`;
+  }
+});
+
+// Tự kiểm: mở index.html?check, xem console. Mỗi bào quan phải có nhãn, vật liệu và vật thể bấm được.
+if (location.search.includes('check')) {
+  for (const k in ORG) console.assert(anchors[k] && mats[k] && (k === 'membrane' || pickables.some(o => o.userData.key === k)), 'thiếu: ' + k);
+  console.log('check xong:', Object.keys(ORG).length, 'bào quan,', pickables.length, 'vật thể bấm được');
+  const e = express('GGCACCATGGCTTCAAAGGTGCATCTGACCTGGTAAGCC');
+  console.assert(e.codons.join('') === 'MASKVHLTW*' && e.stop === 'UAA' && e.start === 6 && e.template.startsWith('CCGTGGTAC'), 'express sai');
+  console.assert(express('GGGCCC').start === -1 && express('ATGAAA').stop === null, 'express sai ở ca biên');
+  // Spatial hash phải tìm ra đúng tập cặp chồng nhau mà cách dò mọi cặp tìm ra.
+  const touching = brute => { dry = new Set(); sweep(brute); const s = dry; dry = null; return s; };
+  release(3000);
+  const viaHash = touching(false), viaBrute = touching(true);
+  console.assert(viaBrute.size > 100 && viaHash.size === viaBrute.size && [...viaBrute].every(p => viaHash.has(p)), 'spatial hash sót cặp');
+  console.log('hash khớp brute:', viaBrute.size, 'cặp chồng nhau');
+  recount();
+  // Mỗi ca quiz phải trỏ tới bào quan có thật, và bật rồi tắt triệu chứng phải trả cảnh về nguyên trạng.
+  for (const c of CASES) { console.assert(ORG[c.key] && anchors[c.key] && c.clues.length === 3, 'ca quiz sai: ' + c.key); c.fx(true); c.fx(false); }
+  console.assert(drift === 1 && wallR === R - .35 && junk.count === 0 && freeRibo.count === 1500 && microtubules.visible && vesicles.every(v => v.visible)
+    && memMat.uniforms.amp.value === 1 && MX.every((x, m) => m % 16 || x === rad[m / 16]), 'triệu chứng quiz không hoàn nguyên');
+  console.log('quiz:', CASES.length, 'ca, hoàn nguyên được');
+  window.atlas = { quiz, CASES, select, anchors, camera, controls, renderer, composer, run, get D() { return D; }, simulate, release, sim: () => ({ nMol, pairs, simMs }),
+    step(s) { for (let i = 0; i < s * 20; i++) tick(.05); draw(); follow(); if (fly) { controls.target.copy(fly.t); camera.position.copy(fly.p); } } };
+}
+</script>
+</body>
+</html>
